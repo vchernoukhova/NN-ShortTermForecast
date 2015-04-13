@@ -21,6 +21,8 @@ if (
     Date_StartTrain <- min(data$StartDate)
 }
 
+ForecastMonth <- as.Date(ForecastMonth, format = '%m/%d/%Y')
+
 Date_StartTest   <- ForecastMonth
 Date_EndTest     <- ForecastMonth + months(1) - days(1)
 
