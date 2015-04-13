@@ -10,7 +10,8 @@ require (lubridate)
 source('U:/_Load Forecasting/Victoria/Short Term NN model/Codes/brnn_function_code.R')
 
 MarketIdentifier <- 'NY_PWR'
-ForecastMonth    <- '06/01/2014'
+ForecastMonthVector <- c('06/01/2014','07/01/2014','08/01/2014','09/01/2014')
+#ForecastMonth    <- '06/01/2014'
 NumberOfValidationMonths <- 4
 NumberOfGapMonths <- 4
 NumberOfRuns      <- 3
@@ -111,12 +112,12 @@ index <- c(1:nrow(combinations))
 #Current_LoadProfileGroupIdentifier <- 'OR'
 #Current_DeliveryPointIdentifier    <- 'G'
 
-for (i in index){
+for (ForecastMonth in ForecastMonthVector){
+  for (i in index){
     Current_BookOID                    <- combinations$BookOID[i]
     Current_LoadProfileGroupIdentifier <- combinations$LoadProfileGroupIdentifier[i]
     Current_DeliveryPointIdentifier    <- combinations$DeliveryPointIdentifier[i]
-
+    
     source('U:/_Load Forecasting/Victoria/Short Term NN model/Codes/Main_code.R')
- 
+  }
 }
-
