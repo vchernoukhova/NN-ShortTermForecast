@@ -93,7 +93,12 @@ combinations <- sqlQuery(channel,"  SELECT
                                     ")
 
 
-input <- sqlQuery(channel, paste("SELECT * FROM [LoadForecastingAnalytics].[dbo].[R_NeuralNetwork_inputs] WHERE InputType = '", InputType,"'", sep= '' ))
+input <- sqlQuery(channel, paste("SELECT
+                                          *
+                                  FROM
+                                        [LoadForecastingAnalytics].[dbo].[R_NeuralNetwork_inputs]
+                                  WHERE
+                                        InputType = '", InputType,"'", sep= '' ))
 
   #Run everything
 index <- c(1:nrow(combinations))
