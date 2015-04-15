@@ -10,15 +10,15 @@ require (lubridate)
 source('U:/_Load Forecasting/Victoria/Short Term NN model/Codes/brnn_function_code.R')
 
 MarketIdentifier <- 'NY_PWR'
-#ForecastMonthVector <- c('06/01/2014','07/01/2014','08/01/2014','09/01/2014')
-ForecastMonthVector <- c('09/01/2014')
+ForecastMonthVector <- c('06/01/2014','07/01/2014','08/01/2014','09/01/2014')
+#ForecastMonthVector <- c('09/01/2014')
 #ForecastMonth    <- '06/01/2014'
 NumberOfValidationMonths <- 4
 NumberOfGapMonths <- 4
 NumberOfRuns      <- 3
 BatchNo           <- 1
-InputType         <- 'First'  #'Default'
-Comment           <- 'code test'
+InputType         <- 'Second'  #'Default'
+Comment           <- '4 months|less number of delays test'
 
 if (is.null(Comment)){
   Comment <- InputType
@@ -114,16 +114,17 @@ index <- c(1:2)
 #i=3
 #Or type manually
 #Current_BookOID                    <- 'Hudson'
-#Current_LoadProfileGroupIdentifier <- 'OR'
-#Current_DeliveryPointIdentifier    <- 'G'
+#Current_LoadProfileGroupIdentifier <- 'ConEd'
+#Current_DeliveryPointIdentifier    <- 'I'
 
-for (ForecastMonth in ForecastMonthVector){
-  for (i in index){
+
+for (i in index){
     Current_BookOID                    <- combinations$BookOID[i]
     Current_LoadProfileGroupIdentifier <- combinations$LoadProfileGroupIdentifier[i]
     Current_DeliveryPointIdentifier    <- combinations$DeliveryPointIdentifier[i]
     
-    source('U:/_Load Forecasting/Victoria/Short Term NN model/Codes/Main_code.R')
-  }
+    for (ForecastMonth in ForecastMonthVector){
+      source('Z:/ShortTermForecast/Main_code.R')
+    }
 }
 
