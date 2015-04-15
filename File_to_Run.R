@@ -18,7 +18,11 @@ NumberOfGapMonths <- 4
 NumberOfRuns      <- 3
 BatchNo           <- 1
 InputType         <- 'Second'  #'Default'
-Comment           <- '4 months|less number of delays test'
+Comment           <- '4 months|exl Sep28-Oct19,2013|+season'
+
+
+StartExcluding <- '09/28/2013' #NULL
+EndExcluding   <- '10/19/2013' #NULL
 
 if (is.null(Comment)){
   Comment <- InputType
@@ -56,6 +60,7 @@ if (!exists("data_all")) {
                                          ,[CustCount]
                                          ,[ActualLoad]
                                          ,[LagSystemLoad]
+                                         ,[Season]
                                     FROM
                                           [LoadForecastingAnalytics].[dbo].[vw_NeuralNetworkInputNYISO]
                                     WHERE YEAR(StartDate) = 2013 OR YEAR(StartDate) = 2014 
@@ -114,8 +119,8 @@ index <- c(1:2)
 #i=3
 #Or type manually
 #Current_BookOID                    <- 'Hudson'
-#Current_LoadProfileGroupIdentifier <- 'ConEd'
-#Current_DeliveryPointIdentifier    <- 'I'
+#Current_LoadProfileGroupIdentifier <- 'OR'
+#Current_DeliveryPointIdentifier    <- 'G'
 
 
 for (i in index){

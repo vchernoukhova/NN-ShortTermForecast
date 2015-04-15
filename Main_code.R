@@ -21,6 +21,7 @@ output$Factors <- paste (parameters$ForecastHour,
                          parameters$WeightedTemperatureHumidityIndex,
                          parameters$ActualLoad,
                          parameters$LagSystemLoad,
+                         parameters$Season,
                          sep = '')
   
 if (
@@ -81,7 +82,8 @@ scale_parameters <- c (
 factor_parameters <- c (
     'ForecastHour',
     'DayOfWeek',
-    'Month'
+    'Month',
+    'Season'
 )
 
 # if it has "1" in input file (we want to use it as a parameter) and it's a factor/scale
@@ -121,7 +123,7 @@ to_nn_data <- function(data,n_delays) {
 data_nn_not_clean <- to_nn_data(data,n_delays)
 
 #Day light savings: exclude them and all delays related to them 
-null_obs <- which(   data_nn_not_clean$ForecastHour == 2 &
+daylight_obs <- which(   data_nn_not_clean$ForecastHour == 2 &
                        ( 
                          data_nn_not_clean$StartDate == as.Date('03/10/2013', format = '%m/%d/%Y') |
                            data_nn_not_clean$StartDate == as.Date('03/11/2013', format = '%m/%d/%Y') | 
@@ -132,6 +134,18 @@ null_obs <- which(   data_nn_not_clean$ForecastHour == 2 &
                            data_nn_not_clean$StartDate == as.Date('03/14/2011', format = '%m/%d/%Y') 
                        )
 )   
+
+if (is.null(StartExcluding) & is.null(EndExcluding)){
+  null_obs <- daylight_obs
+}else if (!is.null(StartExcluding) & !is.null(EndExcluding)){
+  bad_obs <- which (data_nn_not_clean$StartDate >= as.Date(StartExcluding, format = '%m/%d/%Y') &
+                      data_nn_not_clean$StartDate <= as.Date(EndExcluding, format = '%m/%d/%Y'))
+  
+  null_obs <- union(daylight_obs, bad_obs) 
+}else{
+  print("Fix start and end dates for excluding outliers!")
+}
+
 
 all_null_obs <- null_obs
 
