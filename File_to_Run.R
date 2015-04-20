@@ -57,7 +57,7 @@ for (i_zone in index_zone){
                                                  "' AND LoadProfileGroupIdentifier = '", Current_LoadProfileGroupIdentifier,
                                                  "' AND DeliveryPointIdentifier = '", Current_DeliveryPointIdentifier,"'",
                                                  sep= '' ))
-    index_input <- c(7:nrow(input_all))
+    index_input <- c(1:nrow(input_all))
     
     for (i_input in index_input){
       input <- input_all[i_input,]
