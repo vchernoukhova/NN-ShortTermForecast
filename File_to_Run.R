@@ -11,8 +11,11 @@ MarketIdentifier         <- 'NY_PWR'
 NumberOfValidationMonths <- 4
 NumberOfGapMonths        <- 4
 NumberOfRuns             <- 3
-BatchNo                  <- 1
+BatchNo                  <- 5
 Show_Iterations          <- FALSE
+
+noise                    <- FALSE
+noise_factor             <- 5 # vector*factor/50
 
 ##### BatchNo ########
 # Victoria 1
@@ -24,8 +27,9 @@ Show_Iterations          <- FALSE
 
 
 ForecastMonthVector <- c('06/01/2014','07/01/2014','08/01/2014','09/01/2014')
-InputType           <- 'Loop'
-Comment             <- 'Loop test: 24 delays'
+InputType           <- 'Current Best'
+Comment             <- 'OR Testing|6 delays'
+
 
 
 channel <- odbcDriverConnect(connection = "DRIVER={SQL Server}; SERVER=DBACM\\ARCHIMEDES; DATABASE=LoadForecastingAnalytics")
@@ -39,6 +43,8 @@ combinations <- sqlQuery(channel, paste("SELECT
                                          WHERE
                                                 InputType = '", InputType,"'", sep= '' ))
 
+combinations$DeliveryPointIdentifier[combinations$DeliveryPointIdentifier=='FALSE'] <- 'F' 
+
 index_zone  <- c(1:nrow(combinations))
 
 for (i_zone in index_zone){
@@ -46,6 +52,7 @@ for (i_zone in index_zone){
     Current_LoadProfileGroupIdentifier <- combinations$LoadProfileGroupIdentifier[i_zone]
     Current_DeliveryPointIdentifier    <- combinations$DeliveryPointIdentifier[i_zone]
     
+
     channel <- odbcDriverConnect(connection = "DRIVER={SQL Server}; SERVER=DBACM\\ARCHIMEDES; DATABASE=LoadForecastingAnalytics")
     input_all <- sqlQuery(channel, paste ("SELECT
                                                   *
@@ -57,13 +64,15 @@ for (i_zone in index_zone){
                                                  "' AND LoadProfileGroupIdentifier = '", Current_LoadProfileGroupIdentifier,
                                                  "' AND DeliveryPointIdentifier = '", Current_DeliveryPointIdentifier,"'",
                                                  sep= '' ))
+    
     index_input <- c(1:nrow(input_all))
     
     for (i_input in index_input){
       input <- input_all[i_input,]
+      input$DeliveryPointIdentifier[input$DeliveryPointIdentifier=='FALSE'] <- 'F' 
       for (ForecastMonth in ForecastMonthVector){
-        source('U:/_Load Forecasting/Victoria/Short Term NN model/Codes/Main_code.R')
+        source('U:/_Load Forecasting/Victoria/Short Term NN model/Codes/Main_code_last.R')
       }
     }
-    
+  
 }

@@ -4,6 +4,10 @@
 ## Best run is based on Gamma
 ## Alpha and Beta are now parameters
 ## Iteration history to file_to_run
+## April 21
+## Beta can be NULL now, aplha is always NULL
+## "Alpha" means mu, mu_dec = 1, mu_inc = 1
+##April 24 adding start as parameter
 
 condition <- data_all$BookOID == Current_BookOID
 
@@ -23,7 +27,7 @@ parameters <- input[as.character(input$BookOID)                    == Current_Bo
                     as.character(input$DeliveryPointIdentifier)    == Current_DeliveryPointIdentifier,]
 
 output <- parameters[,c('BookOID','LoadProfileGroupIdentifier','DeliveryPointIdentifier','NumberOfNeurons', 'NumberOfDelays',
-                       'Count', 'Alpha', 'Beta')]
+                       'Count', 'Alpha', 'Beta', 'Date_StartTrain')]
 
 output$Factors <- paste (parameters$ForecastHour,
                          parameters$DayOfWeek,
@@ -45,9 +49,13 @@ output$Factors <- paste (parameters$ForecastHour,
                          parameters$CoolingDegreeHours,
                          parameters$HeatingDegreeHours,
                          sep = '')
-  
 
-Date_StartTrain <- min(data$StartDate)
+if (is.null(output$Date_StartTrain)|is.na(output$Date_StartTrain)){
+  Date_StartTrain <- min(data$StartDate)
+} else {
+  Date_StartTrain <- as.Date(output$Date_StartTrain, format = '%Y-%m-%d')
+}
+
 ForecastMonth <- as.Date(ForecastMonth, format = '%m/%d/%Y')
 
 Date_StartTest   <- ForecastMonth
@@ -116,7 +124,7 @@ factor_inputs <- union(factor_inputs, c('LoadProfileGroupIdentifier','DeliveryPo
 scale_inputs  <- names(parameters)[parameters[1,]== 1 & is.element(names(parameters), scale_parameters)]
 
 
-if (is.na(parameters$Count)){
+if (is.na(parameters$Count) | is.null(parameters$Count)){
     data$Volume_PerCount <- data$Volume
 } else {
     Count <- as.character(parameters$Count)
@@ -156,7 +164,8 @@ daylight_obs <- which(   data_nn_not_clean$ForecastHour == 2 &
                            data_nn_not_clean$StartDate == as.Date('03/10/2014', format = '%m/%d/%Y') |
                            data_nn_not_clean$StartDate == as.Date('03/11/2012', format = '%m/%d/%Y') |
                            data_nn_not_clean$StartDate == as.Date('03/12/2012', format = '%m/%d/%Y') |
-                           data_nn_not_clean$StartDate == as.Date('03/14/2011', format = '%m/%d/%Y') 
+                           data_nn_not_clean$StartDate == as.Date('03/14/2011', format = '%m/%d/%Y') |
+                           data_nn_not_clean$StartDate == as.Date('03/13/2011', format = '%m/%d/%Y')
                        )
 )   
 
@@ -185,7 +194,13 @@ outliers2 <- which (data_nn_not_clean$BookOID == 'Hudson' & data_nn_not_clean$Lo
 	        data_nn_not_clean$StartDate <= as.Date('10/19/2013', format = '%m/%d/%Y')
 		)
 
-null_obs <- union(daylight_obs, union(outliers1, outliers2 ))
+
+outliers3 <- which (data_nn_not_clean$BookOID == 'Just Energy' & data_nn_not_clean$LoadProfileGroupIdentifier == 'NIMO' &
+                      data_nn_not_clean$StartDate >= as.Date('07/18/2014', format = '%m/%d/%Y') &
+                      data_nn_not_clean$StartDate <= as.Date('07/22/2014', format = '%m/%d/%Y')
+)
+
+null_obs <- union(daylight_obs, union(outliers1, union(outliers3,outliers2) ))
 
 all_null_obs <- null_obs
 
@@ -207,7 +222,12 @@ range(data_nn_validation$StartDate)
 
 NumberOfNeurons <- output$NumberOfNeurons
 Alpha           <- output$Alpha
-Beta            <- output$Beta
+
+#if (is.na(output$Beta) | is.null(output$Beta)){
+#    Beta <- NULL
+#} else {
+#    Beta <- output$Beta
+#}
 
 #have to create this dataframe, because need to exclude some columns for training (utility and zone),
 #But will need them later. So I will delete them only in this copied table and will train on it
@@ -219,18 +239,22 @@ for (rm_factor in c('BookOID', 'LoadProfileGroupIdentifier','DeliveryPointIdenti
   }
 }
 
+if (noise==TRUE){
+  for_training$Volume_PerCount <- jitter(for_training$Volume_PerCount, factor = noise_factor)
+}
+
 run <- as.data.frame(x=list())
 brnn_fit_list <- list()
 
 for (version in 1:NumberOfRuns){
 
 brnn_fit <- brnn_.formula(Volume_PerCount~.-StartDate, data=for_training, neurons=NumberOfNeurons, verbose=Show_Iterations,
-                          init_lim=c(-0.5,0.5),alpha_fixed=Alpha,beta_fixed=Beta)
+                          init_lim=c(-0.5,0.5), alpha_fixed=0.1,beta_fixed=1)
 brnn_fit_list <- c(brnn_fit_list,list(brnn_fit))
 
-Train_Mape       <- round(mean((abs(for_training$Volume_PerCount-predict(brnn_fit))/abs(for_training$Volume_PerCount))[for_training$Volume_PerCount!=0])*100,2) #mape
-Train_Weighted_Mape <- round(100*sum(abs(for_training$Volume_PerCount-predict(brnn_fit)))/sum(abs(for_training$Volume_PerCount)[for_training$Volume_PerCount!=0]),2)
-Validation_Mape  <- round(mean((abs(data_nn_validation$Volume_PerCount-predict(brnn_fit,data_nn_validation))/abs(data_nn_validation$Volume_PerCount))[data_nn_validation$Volume_PerCount!= 0])*100,2)  #mape
+Train_Mape          <- round(mean((abs(data_nn_train$Volume_PerCount-predict(brnn_fit,data_nn_train))/abs(data_nn_train$Volume_PerCount))[data_nn_train$Volume_PerCount!=0])*100,2) #mape
+Train_Weighted_Mape <- round(100*sum(abs(data_nn_train$Volume_PerCount-predict(brnn_fit,data_nn_train)))/sum(abs(data_nn_train$Volume_PerCount)[data_nn_train$Volume_PerCount!=0]),2)
+Validation_Mape     <- round(mean((abs(data_nn_validation$Volume_PerCount-predict(brnn_fit,data_nn_validation))/abs(data_nn_validation$Volume_PerCount))[data_nn_validation$Volume_PerCount!= 0])*100,2)  #mape
 
 run[version,'Train_Mape' ]              = Train_Mape
 run[version,'Train_Weighted_Mape' ]     = Train_Weighted_Mape
@@ -242,8 +266,7 @@ run[version,'effect_numberofneurons' ]  = brnn_fit$gamma/(brnn_fit$npar/NumberOf
 
 }
 
-#best_run <- run[min(which(run$Validation_Mape==min(run$Validation_Mape))),]
-best_run <- run[min(which(run$gamma==min(run$gamma))),]
+best_run <- run[min(which(run$Validation_Mape==min(run$Validation_Mape))),]
 output <- cbind(output, best_run)
 
 brnn_fit_best <- brnn_fit_list[[best_run$version]]
@@ -271,8 +294,8 @@ output_data_test[,'Utility' ]           <- data_nn_test$LoadProfileGroupIdentifi
 ##############Save training results#############
 output_data_train <- as.data.frame(x=list())
 
-output_data_train[1:nrow(data_nn_train),'ActualVolumePerCount' ]      <- for_training$Volume_PerCount
-output_data_train[,'ForecastedVolumePerCount' ]  <- predict(brnn_fit_best,for_training)      
+output_data_train[1:nrow(data_nn_train),'ActualVolumePerCount' ]      <- data_nn_train$Volume_PerCount
+output_data_train[,'ForecastedVolumePerCount' ]  <- predict(brnn_fit_best,data_nn_train)      
 output_data_train[,'FlowDate' ]                  <- data_nn_train$StartDate
 output_data_train[,'ForecastHour']               <- data_nn_train$ForecastHour
 
@@ -307,7 +330,7 @@ output <- output[,c('BatchNo','RunOID','BookOID', 'LoadProfileGroupIdentifier', 
                     'Train_Mape', 'Validation_Mape', 'Test_Mape','Comment','Alpha', 'Beta')]
 
 
-
+channel <- odbcDriverConnect(connection = "DRIVER={SQL Server}; SERVER=DBACM\\ARCHIMEDES; DATABASE=LoadForecastingAnalytics")
 sqlSave(channel,output, tablename = 'R_NeuralNetwork_output', rownames = FALSE,
         varTypes=c(Date_EndTrain        ="Date",
                    Date_StartTest       ="Date",
@@ -320,6 +343,7 @@ sqlSave(channel,output, tablename = 'R_NeuralNetwork_output', rownames = FALSE,
 output_data_test <- output_data_test[,c('BatchNo','RunOID','Entity','Zone','Utility','FlowDate',
                                         'ForecastHour','ActualVolumePerCount','ForecastedVolumePerCount')]
 
+channel <- odbcDriverConnect(connection = "DRIVER={SQL Server}; SERVER=DBACM\\ARCHIMEDES; DATABASE=LoadForecastingAnalytics")
 sqlSave(channel,output_data_test, tablename = 'R_NeuralNetwork_testdata', rownames = FALSE,
         varTypes=c(FlowDate ="Date" ),append=TRUE)
 
@@ -327,6 +351,7 @@ sqlSave(channel,output_data_test, tablename = 'R_NeuralNetwork_testdata', rownam
 output_data_train <- output_data_train[,c('BatchNo','RunOID','Entity','Zone','Utility','FlowDate',
                                         'ForecastHour','ActualVolumePerCount','ForecastedVolumePerCount')]
 
+channel <- odbcDriverConnect(connection = "DRIVER={SQL Server}; SERVER=DBACM\\ARCHIMEDES; DATABASE=LoadForecastingAnalytics")
 sqlSave(channel,output_data_train, tablename = 'R_NeuralNetwork_traindata', rownames = FALSE,
         varTypes=c(FlowDate ="Date" ),append=TRUE)
 #################
@@ -334,5 +359,6 @@ sqlSave(channel,output_data_train, tablename = 'R_NeuralNetwork_traindata', rown
 output_data_validation <- output_data_validation[,c('BatchNo','RunOID','Entity','Zone','Utility','FlowDate',
                                         'ForecastHour','ActualVolumePerCount','ForecastedVolumePerCount')]
 
+channel <- odbcDriverConnect(connection = "DRIVER={SQL Server}; SERVER=DBACM\\ARCHIMEDES; DATABASE=LoadForecastingAnalytics")
 sqlSave(channel,output_data_validation, tablename = 'R_NeuralNetwork_validationdata', rownames = FALSE,
         varTypes=c(FlowDate ="Date" ),append=TRUE)
