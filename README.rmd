@@ -1,0 +1,518 @@
+Code Description
+========================================================
+
+The Code for Short Term forecast using Neural Networks method consists of two files.
+The first file is called "File to Run" and the second one is called "Main Code"
+
+This is a description of Short-Term forecast project, using neural network and time series methods. 
+
+
+---------------------- exclude it for now---------------------------
+
+
+Method description.
+
+We are giving a set of data for the last couple years. This data contains energy cosumption for every hour of every day on utility/zone level. Along with consumption, there are different weather factors, that we suspect to influence consumption pattern. Also, there is system load and other factors that we suspect to affect energy consumption. 
+
+The idea is to use all availble data to study relation between energy consumption and all of the given factors, and contruct a model that predicts consumption based on known factors. For our prediction, we have weather forecast for the future dates, that we will apply our model to, and make a volume prediction for future.
+
+Building a model.
+
+Firstly, we take all available data, and build a model based on it. Normally, the more data the better; but data quality is always a big issue, so sometimes it might be a right thing to include only recent data, that you are confident about. Anyway, try to make your data set as big as possible.
+
+Now, when we chose data we use for model building, we need to split it into several parts. Generally, people split data into three parts: training, validation, and testing data. 
+
+**Training Set** 
+
+This set is used to calculate coefficients of all the factors. 
+
+The same way regression finds coefficients for each of the parameters, that indicates its importance, neural network finds coeffecients for its model. Neural network function is more complicated, but idea of coeffecients is the same. 
+
+For this training set we have inputs ( weather parameters, time parameters, system load), and we have output ( energy usage ). Using this data neural network determines relations between inputs and output, and contructs a model.
+
+**Validation Set** 
+
+Now, when you constructed a model, you want to check its performance and see how good it is. The way to do it is to use validation data. The idea is to imagine that we don't have outputs ( usages ) for this data yet, and make a prediction using the model contructed on training data set. After we make predictions, we can compare it with actual volumes, and find an error of our prediction. several times
+
+
+---------------------- exclude it for now---------------------------
+
+
+Normally, if we need to predict some month, we would use all the data prior to this month, to construct our model. Unfortunatelly, for some of the markets, we get data with a delay, and at the moment of prediction we have only several months old data. ( In case of NYISO, it's 4 months). That makes us introducing a gap in our model. 
+
+
+# File To Run
+
+## Installing All The Necessary Packages
+  + Package **RODBC** is needed for connecting R to a SQL database.
+  + Package **lubridate** is needed to simplify operations with date variables
+  + Package **brnn** is needed to call brnn function, that is used in our program as a prediction method
+  
+##  Variables Definition
+* These are the variables that mostly stay constant while testing the models:
+  + **Market Identifier**
+  + **Number of validation months**
+  + **Number of gap months**
+  
+      Due to delay in getting the data, we have to introduce a gap in our model. That means that although we need to make a prediction for the             future month, the newest avaiable to us data is several months old (See choosing the number of gap months **LINK**)
+  + **Number of runs** 
+  
+      When we do our training, we train pur model not once, but several times, and after that using the best run, according to some rules. See details **HERE**
+  + **Show iteration** 
+  
+      That is a TRUE/FALSE variable, that will show each iteration of the training process when set to TRUE.
+  + **Noise** and **Noise Factor** 
+  
+      These variables can be needed in case of overfitting. See details **HERE**
+  + **Forecast Month Vector** 
+  
+      This is vector of months, that the program will perform forecast for. See details **HERE**
+  + **Old Data** 
+  
+      This is a TRUE/FALSE variable, includes data before year of 2013 when set to TRUE.
+  
+
+* Now we define the second group of variables. These variables will be changed most of the times user runs the program.
+  + **BatchNo** 
+  
+      Batch number is a user ID, that is needed as a safty feature. See details [here](#BatchNo)
+  + **Input Type** 
+  
+      This variable is needed to define group of the tests you need to run. See details [here](#Input Type)
+  + **Comment**
+  
+      In this variable you will put your personal comment, that will simplify analysis of your test results. See details **HERE**
+
+## Data Import 
+
+On this step the program calls a different script, that does data import.
+Let's see the details of how it works.
+
+Firstly, let's introduce what variables we are using:
+- **Data_All** 
+
+    This is a "global" variable that stores all the data we will be working with. 
+    At this point we have data available starting from 2011 for Just Energy, and starting from 2012 for Hudson.
+    Unfortunatelly, for now, including data of 2011 and 2012 makes the result worse for almost all of the markets,
+    and it can be better not to use this data at all.
+    
+    While doing our testing, we were trying both including, and excluding this data. So this variable can contain 
+    all the data, or it can contain only "new" data, that starts at January 2013.
+
+- **Need Data**
+
+    This is a "local" variable, that helps in determining when it is needed to upload the data.
+    If Need Data equals to "yes", it means that we do need to upload data. If it's "no", we don't.
+    
+- **Old Data**
+    
+    OldData is a "global" variable. This is one of the input parameters that you set the value for in the beginning
+    of the program. It simply shows if you are willing to use data from before 2013. Set it to TRUE to indicated that 
+    you do need the old data, and to FALSE otherwise.
+    
+- **Previous Old Data**
+
+    This basically is the same thing as **Old Data**, but it stores the value from the previous run. 
+    Since it takes long time for data to be uploaded into R, we don't want to do it twice without need.
+    So we memorize what data is already stored in data_all variable, and will update it, only if we need different
+    kind of data
+
+Now we are ready to look at the code of the program.
+
+### 1. Determining "Need Data"
+```{r, eval=FALSE}
+if (!exists('data_all')) { 
+  NeedData <- 'yes'
+} else if (exists('data_all')) {
+  if (OldData == PreviousOldData){
+    NeedData <- 'no'
+  } else {
+    NeedData <- 'yes'
+  }
+}
+```
+
+Explanation:
+
+
+ 1. If data_all doesn't exist, then we **DO** need data.  
+ 2. If data_all does exist, then  
+  2.1. If the type of data we need is the same as it was before, then we **DO NOT** need to update data_all variable  
+  2.2. If the type of data is different from what we had last time, we **DO** need to update data_all variable
+
+### 2. Importing the data
+```{r, eval=FALSE}
+if (NeedData == 'yes'){
+  PreviousOldData <- OldData
+  if (OldData == TRUE){
+    data_all <- sqlQuery(channel,"  SELECT
+                                          *
+                                    FROM
+                                          [LoadForecastingAnalytics].[dbo].[vw_NeuralNetworkInputNYISO]
+                                    ORDER BY
+                                          [BookOID]
+                                         ,[DeliveryPointIdentifier]
+                                         ,[LoadProfileGroupIdentifier]
+                                         ,[StartDate]
+                                         ,[ForecastHour]
+                                        ")
+    print ('Old Data was Imported')
+    
+  } else if (OldData == FALSE){
+    data_all <- sqlQuery(channel,"  SELECT
+                                          *
+                                    FROM
+                                          [LoadForecastingAnalytics].[dbo].[vw_NeuralNetworkInputNYISO]
+                                    WHERE YEAR(StartDate) = 2013 OR YEAR(StartDate) = 2014 
+                                    ORDER BY
+                                          [BookOID]
+                                         ,[DeliveryPointIdentifier]
+                                         ,[LoadProfileGroupIdentifier]
+                                         ,[StartDate]
+                                         ,[ForecastHour]
+                                        ")
+    print ('New Data was Imported')
+  }
+  
+  ##data formatting 
+  data_all$BookOID                    <- as.character(data_all$BookOID)
+  data_all$LoadProfileGroupIdentifier <- as.character(data_all$LoadProfileGroupIdentifier)
+  data_all$DeliveryPointIdentifier    <- as.character(data_all$DeliveryPointIdentifier)
+  data_all$DeliveryPointIdentifier[data_all$DeliveryPointIdentifier=='FALSE'] <- 'F' 
+  
+  data_all$StartDate <- as.Date(data_all$StartDate, format = '%m/%d/%Y')
+  ##
+  print ('Data was formatted')
+}
+
+```
+Explanation:
+
+1. If we need data, then  
+  1.1. Update PreviousOldData variable, to remember what data is stored in data_all variable. It is TRUE, when data is "old",
+  which means it includes data prior to 2013, and FALSE otherwise.  
+  1.2. If we need "old" data, then upload it. Upload "new" data otherwise.  
+  1.3. Format the data
+  
+
+## Download inputs file from SQL
+
+At this step of the program we import table, called "inputs table".      
+This table stores input model parameters for each specific entity, utility, and zone:
+
++ **Number of delays**
+
+    This is a time series parameter. 
+    For scale factors, such as temperature and wind speed the model uses time series. That means, that for each particular       data point (each date, each hour) the model uses not only current value of a factor, but also its history. The number of delays is the number of data points in past we want to use in our model.
+  
+    Let's say, number of delays = 3. Then, for the date of 06-01-2014 hour 5 our temperature parameter includes temperature for 06-01-2014 hour 5, hour 4, hour 3, and hour 2. The prediction for this hour 5 will be based on all 4 temperatures: 3 delays and current point.
++ **Number of neurons**
+
+    This is a neural network paramter, that indicates complexity of the model.
+    Normally, you want this number to be big enought to capture complex trend of your data and create approptiate model. But at the same time it shouldn't be too big, because this creates an effect of overfitting.
+  
+    The more neurons you have, the better model will perform on training set, making your model more and more complex trying to capture behavior of training data. This makes model too sensetive to training data with a poor ability for generalization. If you give new (testing) set to such a model, it will perform poorly, and give a high error.  
++ **RCECount/CustCount**
+
+    This field indicated if we use volume as our output, or volume per customer count, or volume per RCE count. See details [here](#RCECount)
++ **Time parameters**
+
+    Time parameters include date, month, and hour.
++ **Weather parameters**
+
+    Weather parameters depend on combination of entity, utility, and zone. Most of the models include wetBulb temperature, DewPoint temperature, or CDD/HDD. Some of them include wind speed, some include humidity index, some - seasonal parameter.
+
+    Prior to start our prediction, we tested all models to determing significant parameters, and choose them as factors for each entity, utility, and zone. 
++ **System loads parameters**
++ **Other parameters**
++ <a name="Input Type"></a> **Input Type**
+
+    Input Type is something you need when you are choosing parameters of a model, figuring out what data to use, and do other kinds of testing prior to running predictions in production environment. 
+    
+    The way testing works is you create set of tests you want to run, and you put identification for your set, - that will be your input type. You can call it anyway you want, just make sure the name defines the test so it will be easier for you to work with it. Here are some examples: "Hudson Coned J Testing", "Hudson|All utilities|Neurons Testing" .
+    
+    After that, you put the name of your Input Type as one of your input variables in the beginning of "File To Run" file, and the program will run all the test you set up.
+    
+    In case of running in production, you will be using one particular input type, where you store best parameters for all your models. Currently, such input type's called "Current Best".
+    
+For time, weather, and system load parameters, input table stores either 0 or 1 for each factor. 1 means we want to include it in our model, 0 means we don't.
+
+### 1. Pulling the list of all entity/utility/zone combinations
+Now let's look at the code.
+On the first step we pull all combinations of entity, utility, and zone, so we could go through all of them, when running a program. 
+
+```{r, eval=FALSE}
+combinations <- sqlQuery(channel, paste("SELECT
+                                                 DISTINCT
+                                                 BookOID
+                                         ,       LoadProfileGroupIdentifier
+                                         ,       DeliveryPointIdentifier
+                                         FROM
+                                                [LoadForecastingAnalytics].[dbo].[R_NeuralNetwork_inputs]
+                                         WHERE
+                                                InputType = '", InputType,"'", sep= '' ))
+```
+
+### 2. Going through them
+
+Now we save indexes of all the combinations in variable called "index_zone", and make a loop that goes through all of them.
+The first step that is executed in the loop is assigning current values for entity, utility, and zone.
+Once in the loop, program will execute everything inside of it for a particular entity/utility/zone combination.
+
+```{r, eval=FALSE}
+index_zone  <- c(1:nrow(combinations))
+
+for (i_zone in index_zone){
+  Current_BookOID                    <- combinations$BookOID[i_zone]
+  Current_LoadProfileGroupIdentifier <- combinations$LoadProfileGroupIdentifier[i_zone]
+  Current_DeliveryPointIdentifier    <- combinations$DeliveryPointIdentifier[i_zone]
+```
+
+### 3. Pulling inputs table 
+
+Now, when we know entity, utility, and zone we want to run the training for, we can go to the Inputs table, and filter for those values. We get input table stored in variable "input", that could have several rows while testing, but must have only one row in production environment. This row indicates best parameters that were chosen for the current entity, utility, and zone.
+
+```{r, eval=FALSE}
+input <- sqlQuery(channel, paste ("SELECT
+                                          *
+                                   FROM
+                                         [LoadForecastingAnalytics].[dbo].[R_NeuralNetwork_inputs]
+                                   WHERE
+                                         InputType = '", InputType,
+                                "' AND BookOID = '", Current_BookOID,
+                                "' AND LoadProfileGroupIdentifier = '", Current_LoadProfileGroupIdentifier,
+                                "' AND DeliveryPointIdentifier = '", Current_DeliveryPointIdentifier,"'",
+                                sep= '' ))
+```
+
+After this, we do a quick check, if inputs table really has only one row, only one set of best parameters. If there are more rows than 1, then program will stop executing and will throw an error, that will name entity, utility, and zone, for which input table has more than one set of parameters.
+
+```{r, eval=FALSE}
+  if (nrow(input) != 1){
+    print(paste("More than 1 input for", Current_BookOID, Current_LoadProfileGroupIdentifier, 
+                Current_DeliveryPointIdentifier, "!", sep = " "))
+    break
+  } 
+```
+
+The following line will rename zones F back to "F", because once R imported them from SQL, it renamed them to FALSE: 
+
+```{r, eval=FALSE}
+  input$DeliveryPointIdentifier[input$DeliveryPointIdentifier=='FALSE'] <- 'F' 
+```
+
+# Main File
+
+## Data preparation
+This program is set up the way that you can combine utilities within a zone, or zones within utilities. (???)
+Blah blah blah condition blah blah
+
+Finally, we get the variable data which contains data for the current combination. On the second iteration of combination loop this variable (like all the other local variables in this code) will be rewritten to store new set of data. 
+
+```{r, eval=FALSE}
+  data <- subset(data_all, condition) 
+```
+Now we store all the parameters for this particular combination (note: now it's not needed cause input table already has inputs only for the current combination) in "parameters" variable.
+
+```{r, eval=FALSE}
+parameters <- input[as.character(input$BookOID)                    == Current_BookOID                    &
+                    as.character(input$LoadProfileGroupIdentifier) == Current_LoadProfileGroupIdentifier &
+                    as.character(input$DeliveryPointIdentifier)    == Current_DeliveryPointIdentifier,]
+```
+
+Now let's start creating output data frame, that later will go to our SQL output table, which will store all necessary information about our run for future reference. We will start with parameters, that we already know.
+
+```{r, eval=FALSE}
+output <- parameters[,c('BookOID','LoadProfileGroupIdentifier','DeliveryPointIdentifier','NumberOfNeurons', 'NumberOfDelays','Count', 'Alpha', 'Beta', 'Date_StartTrain')]
+```
+
+In output table, we don't want to store all the weather fields separately like we do in input table. Here we will just save a vector of zeros and ones, using which we can later determine which parameters we were using by joining it on the inputs table.
+
+```{r, eval=FALSE}
+output$Factors <- paste (parameters$ForecastHour,
+                         parameters$DayOfWeek,
+                         parameters$Month,
+                         parameters$WetBulbTemperature,
+                         parameters$DewPointTemperature,
+                         parameters$WindSpeed,
+                         parameters$CloudCover,
+                         parameters$WeightedTemperatureHumidityIndex,
+                         parameters$ActualLoad,
+                         parameters$LagSystemLoad,
+                         parameters$Season,
+                         parameters$Temperature,
+                         parameters$NormalTemperature,
+                         parameters$WindChill,
+                         parameters$HeatIndex,
+                         parameters$RelativeHumidity,
+                         parameters$DayTypeCode,
+                         parameters$CoolingDegreeHours,
+                         parameters$HeatingDegreeHours,
+                         sep = '')
+```
+
+Now let's determine dates for training, validation, and testing data sets.
+
+**Training Set: Start Date**
+
+There is an option of setting start date of training data manually, in inputs table. Normally, you want to use as many data as available. But unfortunately, due to data quality it's not always the right choice. After investigating the data, you can make your own decision on what data you want to use.
+  
+If you don't want to set this start date manually, you can just put NULL value in the inputs table, and the program will choose start date as a first date of available data. 
+  
+Let's look at the code now. If Date_StartTrain field in inputs table ( that we constructed output variable from) is NULL or NA, then use minimal data from the data variable. Otherwise, use the date provided.
+
+```{r, eval=FALSE}
+if (is.null(output$Date_StartTrain)|is.na(output$Date_StartTrain)){
+  Date_StartTrain <- min(data$StartDate)
+} else {
+  Date_StartTrain <- as.Date(output$Date_StartTrain, format = '%Y-%m-%d')
+}
+```
+
+**Testing/Forecasting Set: Start and End Dates**
+
+For finding start and end dates for forecasting set, we will require Forecast Month, which is one of our input variables. 
+
+```{r, eval=FALSE}
+ForecastMonth <- as.Date(ForecastMonth, format = '%m/%d/%Y')
+```
+
+Start Date is the beginning of Forecast month, end date is the ending of it.
+```{r, eval=FALSE}
+Date_StartTest   <- ForecastMonth
+Date_EndTest     <- ForecastMonth + months(1) - days(1)
+```
+
+**Validation Set: Start and End Dates**
+
+Normally, for training and validation set we would use all the data, prior to testing (which is all available data). Unfortunately, for some of the markets, we don't get recent data, and the data comes with several months delay (eg. NYISO data comes with 4 months delay). Therefore, we have to use only available data, which is prior to this gap.
+
+Validation set ends at the most recent available data, which is Testing Set minus the gap. Since the length of validation data is one of the input parameters, knowing validation end date, we can easily find start date.
+
+```{r, eval=FALSE}
+Date_EndValidation   <- Date_StartTest - months(NumberOfGapMonths) - days(1)
+Date_StartValidation <- Date_StartTest - months(NumberOfGapMonths) - months(NumberOfValidationMonths)
+```
+**Training Set: End Date**
+
+Training data ends when validation data starts.
+
+```{r, eval=FALSE}
+Date_EndTrain        <- Date_StartValidation - days(1)
+```
+
+Now let's store all these dates in the output data frame variable for out future reference. 
+
+```{r, eval=FALSE}
+output$Date_StartTrain       <- Date_StartTrain
+output$Date_EndTrain         <- Date_EndTrain
+output$Date_StartTest        <- Date_StartTest
+output$Date_EndTest          <- Date_EndTest
+output$Date_StartValidation  <- Date_StartValidation
+output$Date_EndValidation    <- Date_EndValidation
+```
+
+
+<a name="BatchNo"></a>  As already mentioned, there is an output table, where we store all necessary information each time we run the program. Every run is assigned an id, that consists of two fields.
+
+The first one is BatchNo. This id indicates which user is running the program. Each computer should have separate BatchNo not to encounter any problems while inserting records into result tables. Second one is RunOID, which is identification of runs, this particular user made. 
+
+By filtering by your BatchNo, you can go through all RunOIDs 1 through number of times you ran the program. Each line has its own RunOID and shows information about this run for your reference.
+
+At this step of the program we are assigning RunOID to the current run. 
+Firstly, we pull output table from the SQL, filtering it for your specific BatchNo.
+
+```{r, eval=FALSE}
+sql_output <- sqlQuery(channel, paste("SELECT *  FROM [LoadForecastingAnalytics].[dbo].[R_NeuralNetwork_output] WHERE BatchNo = ", BatchNo, sep= '' ))
+```
+
+Now, search for the biggest RunOID we have in the table, and remember it as "Maximum index". If there is no data, maximum is 0.
+
+```{r, eval=FALSE}
+if (nrow(sql_output)==0){
+    Max_Index <- 0
+} else {
+    Max_Index <- max (sql_output$RunOID)
+}
+```
+
+Current index will be the next one after maximum.
+Also, on this step we are saving BatchNo into the output table ( we input it in the beginning of the program)
+
+```{r, eval=FALSE}
+output$RunOID  <- Max_Index + 1
+output$BatchNo <- BatchNo
+```
+
+## Neural Network Preparation
+
+### Inputs
+As already mentioned, each model has different parameters as inputs. There can be month, seasonal factor, temperature, humidity, and other parameters.
+These parameters are a little different by nature: some of them are continuous (like temperature), and some are categorical ( like seasonal factor).
+
+On this step we will "tell" the program which are which, so it would treat them differently. Here we list all possible factors, not knowing which of them we are going to use in this particular model.
+
+```{r, eval=FALSE}
+#scale parameters
+scale_parameters <- c (
+    'WetBulbTemperature',
+    'DewPointTemperature',
+    'WindSpeed',
+    'CloudCover',
+    'WeightedTemperatureHumidityIndex',
+    'ActualLoad',
+    'LagSystemLoad',
+    'Temperature',
+    'NormalTemperature',
+    'WindChill',
+    'HeatIndex',
+    'RelativeHumidity',
+    'CoolingDegreeHours',
+    'HeatingDegreeHours'
+)
+
+#factor parameters
+factor_parameters <- c (
+    'ForecastHour',
+    'DayTypeCode',
+    'DayOfWeek',
+    'Month',
+    'Season',
+    'LoadProfileGroupIdentifier',
+    'DeliveryPointIdentifier'
+)
+```
+
+Now it's time to determine factors, that will be used in this model.
+
+Factor inputs will be those, that are in factor_parameters vector, and that have 1 in the input table, which means that we want to use them in our model.
+Also, we'll add LoadProfileGroupIdentifier, and Delivery Point Identifier (do I need it now??)
+
+Scale inputs are those, that are in scale_parameters, and have 1 in the input table.
+
+```{r, eval=FALSE}
+factor_inputs <- names(parameters)[parameters[1,]== 1 & is.element(names(parameters), factor_parameters)]
+factor_inputs <- union(factor_inputs, c('LoadProfileGroupIdentifier','DeliveryPointIdentifier'))
+scale_inputs  <- names(parameters)[parameters[1,]== 1 & is.element(names(parameters), scale_parameters)]
+```
+
+
+### Output
+
+<a name="RCECount"></a>
+While we want this neural network model to predict energy consumption, it makes more sense to build a prediction for volume per RCE count, since it accounts for the size of a customer. 
+
+Although it makes sense to use RCE count all the time, due to poor data quality we have to use customer count for some of the models, and in rare cases - volume itself.
+
+The field Count in the input table indicates what we want to use for a particular model. If this field has NULL or NA, then use Volume, without dividing it by anything. If it says RCECount or CustCount, than find such field in data, and divide volume by it.
+
+```{r, eval=FALSE}
+if (is.na(parameters$Count) | is.null(parameters$Count)){
+    data$Volume_PerCount <- data$Volume
+} else {
+    Count <- as.character(parameters$Count)
+    data$Volume_PerCount <- data$Volume/data[,Count]
+}
+```
+
+

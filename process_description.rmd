@@ -1,0 +1,298 @@
+Process description
+========================================================
+
+Download all the data
+---------------------
+
+Our Data:
+
+```{r, include=FALSE, cache=TRUE}
+require (RODBC)
+require (lubridate)
+source('U:/_Load Forecasting/Victoria/Short Term NN model/Codes/brnn_function_code.R')
+MarketIdentifier         <- 'NY_PWR'
+NumberOfValidationMonths <- 4
+NumberOfGapMonths        <- 4
+NumberOfRuns             <- 3
+BatchNo                  <- 1
+Show_Iterations          <- FALSE
+
+noise                    <- FALSE
+noise_factor             <- 5 # vector*factor/50 (see help - function jitter)
+Comment                  <- 'Test Markdown'
+channel <- odbcDriverConnect(connection = "DRIVER={SQL Server}; SERVER=DBACM\\ARCHIMEDES; DATABASE=LoadForecastingAnalytics")
+```
+
+
+
+```{r, cache=TRUE}
+if (!exists("data_all")) { 
+  data_all <- sqlQuery(channel,"  SELECT
+                                          *
+                                    FROM
+                                          [LoadForecastingAnalytics].[dbo].[vw_NeuralNetworkInputNYISO]
+                                    WHERE YEAR(StartDate) = 2013 OR YEAR(StartDate) = 2014 
+                                    ORDER BY
+                                          [BookOID]
+                                         ,[DeliveryPointIdentifier]
+                                         ,[LoadProfileGroupIdentifier]
+                                         ,[StartDate]
+                                         ,[ForecastHour]
+                                        ")
+  
+  ##data formatting 
+  data_all$BookOID                    <- as.character(data_all$BookOID)
+  data_all$LoadProfileGroupIdentifier <- as.character(data_all$LoadProfileGroupIdentifier)
+  data_all$DeliveryPointIdentifier    <- as.character(data_all$DeliveryPointIdentifier)
+  data_all$DeliveryPointIdentifier[data_all$DeliveryPointIdentifier=='FALSE'] <- 'F' 
+  
+  data_all$StartDate <- as.Date(data_all$StartDate, format = '%m/%d/%Y')
+  ##
+  
+}
+```
+
+
+```{r, echo = FALSE, cache=TRUE}
+head(data_all[c('BookOID', 'LoadProfileGroupIdentifier','DeliveryPointIdentifier', 'DayTypeIdentifier', 'StartDate',
+                'DayTypeCode', 'ForecastHour','Season', 'Volume', 'WetBulbTemperature',
+                         'DewPointTemperature', 'Temperature', 'NormalTemperature',
+                         'WindSpeed',
+                         'CloudCover',
+                         'WeightedTemperatureHumidityIndex',
+                         'WindChill',
+                         'HeatIndex',
+                         'RelativeHumidity',
+                         'CoolingDegreeHours',
+                         'HeatingDegreeHours',
+                         'ActualLoad',
+                         'LagSystemLoad'
+                         )])
+#kable (dataframe, format = "markdown", longtable = TRUE )
+```
+
+Testing of utility RGE zone B
+------------------------------
+
+### Looking at the data
+
+Before doing any kind of testing, it is a good thing to firstly look at the data, and see if there are 
+any outliers or suspicious consumption, that can harm your training.
+```{r fig.width=22, fig.height=6, echo = FALSE, cache=TRUE}
+data_all$StartDateTime <- as.POSIXct(strptime(paste0(data_all$StartDate,' ',data_all$ForecastHour,':00'),'%Y-%m-%d %H:%M'))
+
+data_to_display <- subset(data_all, BookOID== 'Hudson' & LoadProfileGroupIdentifier == 'RGE')
+plot(x=data_to_display$StartDateTime,y=data_to_display$Volume, type = 'l')
+
+```
+
+Once we made sure, that consumption looks fine, we can proceed to the next step.
+
+### Download inputs file from SQL
+
+This table stores parameters for all test we want to run.
+
+As a first step of our RGE testing we do a **Feature test**, where we test what number of features is 
+optimal, and which features we should include in our neural network model for this particular utility and zone.
+
+Let's filter inputs table for our test, that we call 'Hudson RGE B Feature Test'. Here is how it looks like:
+
+```{r, echo = FALSE, cache=TRUE}
+InputType           <- 'Hudson RGE B Feature Test'
+channel <- odbcDriverConnect(connection = "DRIVER={SQL Server}; SERVER=DBACM\\ARCHIMEDES; DATABASE=LoadForecastingAnalytics")
+sqlQuery(channel, paste("SELECT
+                                                 *
+                                         FROM
+                                                [LoadForecastingAnalytics].[dbo].[R_NeuralNetwork_inputs]
+                                         WHERE
+                                                InputType = '", InputType,"'", sep= '' ))
+
+```
+In this table you can see columns, indication book, utility, zone, and zone parameters of test that will be
+running. Parameters include:
+* Number of delays
+* Number of neurons
+* RCECount/CustCount
+* Time parameters
+* Weather parameters
+* System loads parameters
+
+For the last three you can see that table contains either 1 or 0, which indicates whether to include this
+parameter or not.You can notice that for Feature test, we fix number of delays as well as number of neurons,
+and we change parameters that we include in our model.
+
+
+Generally, in the inputs table, filtered for your test, you can have different utilities and zones. For 
+example, you might want to do tests for all the zones of one utility at once. Or maybe you want to change
+a method you are running and test it for all zones at the same time. You can easily do that by putting 
+different utilities and zone in your inputs table. 
+
+But for now we consider testing only one utility and zone at once.
+
+### A Loop
+
+Once we set up test we want to run in inputs table, we proceed to actually running them.
+
+The testing is implemented in a loop.
+The program goes through all combinations of Books, Utilities, and Zone.
+For every combination of them it searches for all inputs that you've created in your input table for 
+this particular combination, and then for each of them it run a third loop.
+Third loop goes through all 4 months that we want to test on. That means that for each particular 
+combination of utility and zone, program will go through all its inputs and run the test on June, then July,
+August, and finally on September. Then it will proceed to the next input of the same utility.
+
+Once it's done with all inputs of this utility and zone, it will move to the next combination if such exists.
+
+
+```
+for (i_zone in index_zone){
+    Current_BookOID                    <- combinations$BookOID[i_zone]
+    Current_LoadProfileGroupIdentifier <- combinations$LoadProfileGroupIdentifier[i_zone]
+    Current_DeliveryPointIdentifier    <- combinations$DeliveryPointIdentifier[i_zone]
+    
+
+    channel <- odbcDriverConnect(connection = "DRIVER={SQL Server}; SERVER=DBACM\\ARCHIMEDES; DATABASE=LoadForecastingAnalytics")
+    input_all <- sqlQuery(channel, paste ("SELECT
+                                                  *
+                                           FROM
+                                                 [LoadForecastingAnalytics].[dbo].[R_NeuralNetwork_inputs]
+                                           WHERE
+                                                 InputType = '", InputType,
+                                                 "' AND BookOID = '", Current_BookOID,
+                                                 "' AND LoadProfileGroupIdentifier = '", Current_LoadProfileGroupIdentifier,
+                                                 "' AND DeliveryPointIdentifier = '", Current_DeliveryPointIdentifier,"'",
+                                                 sep= '' ))
+    
+    index_input <- c(1:nrow(input_all))
+    
+    for (i_input in index_input){
+      input <- input_all[i_input,]
+      input$DeliveryPointIdentifier[input$DeliveryPointIdentifier=='FALSE'] <- 'F' 
+      for (ForecastMonth in ForecastMonthVector){
+        source('U:/_Load Forecasting/Victoria/Short Term NN model/Codes/Main_code_last.R')
+      }
+    }
+  
+}
+```
+
+Note, that inside of loop, there is only one line. This line is a link to a file with the main code of 
+the program, where the training and testing is implemented. 
+
+
+### Running the code
+
+To demostrate how the process works, we won't run the whole loop for now, we will run the main code only
+for some particular values.
+
+```{r, include=FALSE, cache=TRUE}
+channel <- odbcDriverConnect(connection = "DRIVER={SQL Server}; SERVER=DBACM\\ARCHIMEDES; DATABASE=LoadForecastingAnalytics")
+combinations <- sqlQuery(channel, paste("SELECT
+                                                 DISTINCT
+                                                 BookOID
+                                         ,       LoadProfileGroupIdentifier
+                                         ,       DeliveryPointIdentifier
+                                         FROM
+                                                [LoadForecastingAnalytics].[dbo].[R_NeuralNetwork_inputs]
+                                         WHERE
+                                                InputType = '", InputType,"'", sep= '' ))
+
+combinations$DeliveryPointIdentifier[combinations$DeliveryPointIdentifier=='FALSE'] <- 'F' 
+```
+
+Let's take combination of zone/utility number one. It will be Hudson, RGE, B, since we have only one
+combination in our inputs 'Hudson RGE B Feature Test'.
+
+```{r, cache=TRUE}
+i_zone <- 1
+Current_BookOID                    <- combinations$BookOID[i_zone]
+Current_LoadProfileGroupIdentifier <- combinations$LoadProfileGroupIdentifier[i_zone]
+Current_DeliveryPointIdentifier    <- combinations$DeliveryPointIdentifier[i_zone]
+```
+
+Now let's firstly put all inputs for this combination into variable input_all, and after that
+take the first row from it, which will be our first test to run.
+```{r, cache=TRUE}
+channel <- odbcDriverConnect(connection = "DRIVER={SQL Server}; SERVER=DBACM\\ARCHIMEDES; DATABASE=LoadForecastingAnalytics")
+input_all <- sqlQuery(channel, paste ("SELECT
+                                              *
+                                       FROM
+                                             [LoadForecastingAnalytics].[dbo].[R_NeuralNetwork_inputs]
+                                       WHERE
+                                             InputType = '", InputType,
+                                             "' AND BookOID = '", Current_BookOID,
+                                             "' AND LoadProfileGroupIdentifier = '", Current_LoadProfileGroupIdentifier,
+                                             "' AND DeliveryPointIdentifier = '", Current_DeliveryPointIdentifier,"'",
+                                             sep= '' ))
+
+i_input <- 1 
+input <- input_all[i_input,]   
+```
+
+Now let's take only June, and now we are ready to run the main code
+
+```{r, cache=TRUE}
+ForecastMonth <- '06/01/2014'
+source('U:/_Load Forecasting/Victoria/Short Term NN model/Codes/Main_code_test.R')
+```
+
+
+### Output
+
+The ouput of the code consists of 4 tables: 
+* Summary table of each run 
+* Training data with actual and forecasted volumes
+* Validation data with actual and forecasted volumes
+* Testing data with actual and forecasted volumes
+
+The summary table for each output contains only one row, that has a summary of this run.
+The run was implemented for Hudson book, utility RGE, and zone B. This summary tables shows how many 
+neurons, how many delay, and what factors we used in this test. It also shows all dates for which 
+training, validation, and testing was performed, shows mapes, and also has a comment, that we input
+manually, so it would be easier to analyze the results.
+
+Also in summery table you can notice RunOID. This is ID that is assigned to this particular run.
+Later, when you want to look at the data for this run, you will find data you need using this ID.
+
+```{r, cache=TRUE, warning=FALSE}
+output
+```
+
+#### Training Data
+
+This table is a table with data that was trained. Here you can see ID, that was assigned to a run 
+in the summary output table.You can find here also bookoid, utility, zone, and then you can see
+actual volume for every hour of every day against forecasted volume, that was calculated in the model. 
+
+Using this data now you can find MAPE that you had for training data. Usually this MAPE is low,
+since the model was trying to fit this data. Normally MAPE here is around 3% for relatively big
+zones. If MAPE on training data is bad, it means that the neural network wasn't able to create the model 
+that would fit the data nicely. You might need to consider making your model more complex - taking
+more neurons, delays, taking into account more factors (but make sure factors you include are important).
+
+```{r, echo = FALSE, cache=TRUE}
+kable(head(output_data_train))
+```
+#### Validation Data
+
+In this data frame you can see your validation data. This data wasn't seen by the neural network while training,
+so by looking at MAPEs here we are trying to check how the model handels data it doesn't know yet. If MAPE on
+validation data is low, we can say with some confidence that our model is good. If we were to try forecasting 
+the future month, we suspect MAPE to be low, since it was low on validation data.
+
+```{r, echo = FALSE, cache=TRUE}
+kable(head(output_data_validation))
+```
+
+#### Testing Data
+Looking at the testing data is our last step. Here we test real-life forecasting. We imagine that we don't know 
+this data yet, do forecast, and then compare our result to the actuals. Looking at this MAPE we can actually
+see how we would perform in real-life forecasting. 
+
+```{r, echo = FALSE, cache=TRUE}
+kable(head(output_data_test))
+```
+
+
+
+
